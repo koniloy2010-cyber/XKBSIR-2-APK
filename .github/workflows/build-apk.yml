@@ -1,4 +1,4 @@
-
+ 
 name: Build Android APK
 
 on:
@@ -16,37 +16,14 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Java 17
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-
-      - name: Setup Android SDK
-        run: |
-          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
-          SDKMANAGER=$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager -print -quit)
-          if [ -z "$SDKMANAGER" ]; then
-            echo "Android SDK manager not found"
-            exit 1
-          fi
-          echo "Using $SDKMANAGER"
-          yes | "$SDKMANAGER" --licenses
-          "$SDKMANAGER" --install "platforms;android-36-ext1" "build-tools;36.0.0"
-
-      - name: Create debug signing key
-        run: |
-          keytool -genkeypair -v \
-            -keystore debug.keystore \
-            -storepass android \
-            -alias androiddebugkey \
-            -keypass android \
-            -dname "CN=Android Debug,O=Android,C=US" \
-            -keyalg RSA -keysize 2048 \
-            -validity 10000 -noprompt
 
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -57,6 +34,37 @@ jobs:
         run: |
           unzip -q XKBSIR-2-main.zip -d extracted
           test -f extracted/XKBSIR-2-main/app/build.gradle.kts
+
+      - name: Fix Android SDK version
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("extracted/XKBSIR-2-main/app/build.gradle.kts")
+          s = p.read_text()
+          old = "compileSdk { version = release(36) { minorApiLevel = 1 } }"
+          if old not in s:
+              raise SystemExit("Expected compileSdk setting not found")
+          p.write_text(s.replace(old, "compileSdk = 36"))
+          PY
+
+      - name: Install Android SDK
+        run: |
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -name sdkmanager -type f | head -1)
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses
+          "$SDKMANAGER" --install "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Create debug signing key
+        working-directory: extracted/XKBSIR-2-main
+        run: |
+          keytool -genkeypair -v \
+            -keystore debug.keystore \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -dname "CN=Android Debug,O=Android,C=US" \
+            -keyalg RSA -keysize 2048 \
+            -validity 10000 -noprompt
 
       - name: Build APK
         working-directory: extracted/XKBSIR-2-main
